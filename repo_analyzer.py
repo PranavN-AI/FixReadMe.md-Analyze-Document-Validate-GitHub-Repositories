@@ -1,253 +1,167 @@
-"""repo_analyzer.py - Extract 100+ features from README content."""
+"""repo_analyzer.py - Extract 100+ README features."""
+import os
 import re
-import requests
-from typing import Dict, List
 import base64
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
+API_HEADERS = {"Authorization": f"Bearer {GITHUB_TOKEN}"} if GITHUB_TOKEN else {}
 
 
-def fetch_readme(owner: str, repo: str) -> str:
-    """Fetch README content from GitHub API."""
-    url = f"https://api.github.com/repos/{owner}/{repo}/readme"
+def fetch_readme(owner, repo):
     try:
-        res = requests.get(url, timeout=10)
+        res = requests.get(f"https://api.github.com/repos/{owner}/{repo}/readme",
+                           timeout=10, headers=API_HEADERS)
         if res.status_code == 200:
-            content = res.json().get("content", "")
-            return base64.b64decode(content).decode("utf-8", errors="ignore")
+            return base64.b64decode(res.json().get("content", "")).decode("utf-8", errors="ignore")
     except Exception:
         pass
     return ""
 
 
-def analyze_readme(content: str) -> Dict:
-    """Analyze README and extract 100+ features."""
+def analyze_readme(content):
     if not content:
         return {"features": {}, "metrics": {}}
-    
-    content_lower = content.lower()
-    features = {}
-    metrics = {}
-    
-    # ===== STRUCTURAL FEATURES (0-25) =====
-    h1_count = len(re.findall(r"^# ", content, re.MULTILINE))
-    h2_count = len(re.findall(r"^## ", content, re.MULTILINE))
-    h3_count = len(re.findall(r"^### ", content, re.MULTILINE))
-    h4_count = len(re.findall(r"^#### ", content, re.MULTILINE))
-    
-    features["has_h1"] = h1_count > 0
-    features["has_h2"] = h2_count > 0
-    features["has_h3"] = h3_count > 0
-    features["has_h4"] = h4_count > 0
-    features["has_multiple_h2"] = h2_count > 3
-    features["has_multiple_h3"] = h3_count > 5
-    
-    metrics["h1_count"] = h1_count
-    metrics["h2_count"] = h2_count
-    metrics["h3_count"] = h3_count
-    metrics["h4_count"] = h4_count
-    metrics["heading_count"] = h1_count + h2_count + h3_count + h4_count
-    
-    # Tables
-    table_count = len(re.findall(r"\|.*\|", content))
-    features["has_tables"] = table_count > 5
-    features["has_multiple_tables"] = table_count > 15
-    metrics["table_count"] = table_count
-    
-    # Lists
-    bullet_count = len(re.findall(r"^[-*+]\s", content, re.MULTILINE))
-    numbered_count = len(re.findall(r"^\d+\.\s", content, re.MULTILINE))
-    features["has_bullets"] = bullet_count > 5
-    features["has_numbered_lists"] = numbered_count > 3
-    features["has_many_bullets"] = bullet_count > 20
-    metrics["bullet_count"] = bullet_count
-    metrics["numbered_count"] = numbered_count
-    
-    # Code blocks
+    cl = content.lower()
+    f, m = {}, {}
+
+    # structure
+    m["h1_count"] = len(re.findall(r"^# ", content, re.M))
+    m["h2_count"] = len(re.findall(r"^## ", content, re.M))
+    m["h3_count"] = len(re.findall(r"^### ", content, re.M))
+    m["heading_count"] = m["h1_count"] + m["h2_count"] + m["h3_count"]
+    f["has_h1"] = m["h1_count"] > 0
+    f["has_h2"] = m["h2_count"] > 0
+    f["has_h3"] = m["h3_count"] > 0
+    f["has_multiple_h2"] = m["h2_count"] > 3
+    f["has_multiple_h3"] = m["h3_count"] > 5
+    m["table_count"] = len(re.findall(r"^\|", content, re.M))
+    f["has_tables"] = m["table_count"] > 4
+    f["has_multiple_tables"] = m["table_count"] > 15
+    m["bullet_count"] = len(re.findall(r"^[-*+] ", content, re.M))
+    m["numbered_count"] = len(re.findall(r"^\d+\. ", content, re.M))
+    f["has_bullets"] = m["bullet_count"] > 5
+    f["has_numbered_lists"] = m["numbered_count"] > 3
+    f["has_many_bullets"] = m["bullet_count"] > 20
     code_blocks = re.findall(r"```[\s\S]*?```", content)
-    features["has_code_examples"] = len(code_blocks) > 0
-    features["has_many_code_blocks"] = len(code_blocks) > 5
-    features["has_bash_examples"] = bool(re.search(r"```bash", content))
-    features["has_python_examples"] = bool(re.search(r"```python", content))
-    features["has_javascript_examples"] = bool(re.search(r"```javascript", content))
-    features["has_json_examples"] = bool(re.search(r"```json", content))
-    features["has_yaml_examples"] = bool(re.search(r"```yaml", content))
-    metrics["code_block_count"] = len(code_blocks)
-    
-    # Links
-    link_count = len(re.findall(r"\[([^\]]+)\]\(([^)]+)\)", content))
-    features["has_links"] = link_count > 5
-    features["has_many_links"] = link_count > 20
-    features["has_external_links"] = bool(re.search(r"\]\(https?://", content))
-    features["has_github_links"] = bool(re.search(r"\]\(https?://github\.com", content))
-    features["has_docs_links"] = bool(re.search(r"\]\(https?://\S*docs", content))
-    metrics["link_count"] = link_count
-    
-    # Images/GIFs/Videos
-    img_count = len(re.findall(r"!\[[^\]]*\]\([^)]+\)", content))
-    features["has_images"] = img_count > 0
-    features["has_many_images"] = img_count > 3
-    features["has_gifs"] = bool(re.search(r"\.gif", content, re.I))
-    features["has_screenshots"] = bool(re.search(r"(screenshot|demo).*\.(png|jpg|gif)", content, re.I))
-    features["has_youtube_links"] = bool(re.search(r"youtube\.com|youtu\.be", content, re.I))
-    metrics["image_count"] = img_count
-    
-    # ===== CONTENT SECTIONS (0-30) =====
-    # Installation & Setup
-    features["has_installation"] = bool(re.search(r"(installation|getting started|setup|install)", content_lower))
-    features["has_quick_start"] = bool(re.search(r"quick\s*start", content_lower))
-    features["has_prerequisites"] = bool(re.search(r"(prerequisites?|requirements|dependencies)", content_lower))
-    features["has_docker_instructions"] = bool(re.search(r"docker", content_lower))
-    features["has_env_setup"] = bool(re.search(r"(\.env|environment|env\s*variables?)", content_lower))
-    
-    # Usage & Examples
-    features["has_usage"] = bool(re.search(r"(usage|how to use|examples?)", content_lower))
-    features["has_basic_example"] = bool(re.search(r"basic\s*example|simple\s*example", content_lower))
-    features["has_advanced_example"] = bool(re.search(r"advanced\s*example|complex\s*example", content_lower))
-    features["has_multiple_examples"] = len(re.findall(r"example", content_lower)) > 3
-    
-    # API & Documentation
-    features["has_api_docs"] = bool(re.search(r"(api|endpoint|routes?)", content_lower))
-    features["has_endpoint_list"] = bool(re.search(r"(get|post|put|delete)\s+/", content_lower))
-    features["has_parameters"] = bool(re.search(r"(parameters?|params?|arguments?)", content_lower))
-    features["has_response_format"] = bool(re.search(r"(response|returns?|output)", content_lower))
-    features["has_error_handling"] = bool(re.search(r"(error|exception|troubleshoot)", content_lower))
-    
-    # Configuration
-    features["has_configuration"] = bool(re.search(r"(config|configuration|settings)", content_lower))
-    features["has_env_vars"] = bool(re.search(r"(env|environment)\s*variable", content_lower))
-    features["has_config_file"] = bool(re.search(r"(\.env|config\.json|settings\.yaml)", content_lower))
-    
-    # Community & Support
-    features["has_contributing"] = bool(re.search(r"contributing", content_lower))
-    features["has_code_of_conduct"] = bool(re.search(r"code\s*of\s*conduct", content_lower))
-    features["has_license_section"] = bool(re.search(r"license", content_lower))
-    features["has_changelog"] = bool(re.search(r"changelog", content_lower))
-    features["has_roadmap"] = bool(re.search(r"roadmap", content_lower))
-    features["has_faq"] = bool(re.search(r"faq", content_lower))
-    features["has_troubleshooting"] = bool(re.search(r"(troubleshooting|common\s*issues?)", content_lower))
-    features["has_support"] = bool(re.search(r"(support|help|contact)", content_lower))
-    features["has_discord"] = bool(re.search(r"discord", content_lower))
-    features["has_slack"] = bool(re.search(r"slack", content_lower))
-    
-    # Architecture & Design
-    features["has_architecture"] = bool(re.search(r"architecture", content_lower))
-    features["has_design_decisions"] = bool(re.search(r"(design\s*decision|adr|why)", content_lower))
-    features["has_flow_diagram"] = bool(re.search(r"(flow|diagram|workflow)", content_lower))
-    features["has_system_overview"] = bool(re.search(r"(overview|system|architecture)", content_lower))
-    
-    # Navigation
-    features["has_toc"] = bool(re.search(r"(table of contents|toc|contents)", content_lower))
-    features["has_back_to_top"] = bool(re.search(r"back\s*to\s*top", content_lower))
-    features["has_navigation"] = bool(re.search(r"(jump to|navigate|skip to)", content_lower))
-    
-    # Demo & Live
-    features["has_demo"] = bool(re.search(r"(demo|live|preview|try it)", content_lower))
-    features["has_live_link"] = bool(re.search(r"live\s*demo|deployed|hosted", content_lower))
-    features["has_video_demo"] = bool(re.search(r"(video|screencast|tutorial)", content_lower))
-    
-    # Testing
-    features["has_testing"] = bool(re.search(r"(testing|test|tests)", content_lower))
-    features["has_test_commands"] = bool(re.search(r"(npm test|pytest|jest)", content_lower))
-    features["has_coverage"] = bool(re.search(r"coverage", content_lower))
-    
-    # Deployment
-    features["has_deployment"] = bool(re.search(r"(deploy|deployment|production)", content_lower))
-    features["has_vercel"] = bool(re.search(r"vercel", content_lower))
-    features["has_heroku"] = bool(re.search(r"heroku", content_lower))
-    features["has_aws"] = bool(re.search(r"aws|amazon", content_lower))
-    features["has_docker_compose"] = bool(re.search(r"docker\s*compose|docker-compose", content_lower))
-    
-    # ===== BADGES & VISUAL (0-20) =====
-    shields_count = len(re.findall(r"shields\.io|img\.shields", content_lower))
-    features["has_badges"] = shields_count > 0
-    features["has_many_badges"] = shields_count > 5
-    
-    # Specific badge types
-    features["has_ci_badge"] = bool(re.search(r"(build|ci|test).*pass", content_lower))
-    features["has_version_badge"] = bool(re.search(r"version|v\d", content_lower))
-    features["has_license_badge"] = bool(re.search(r"license.*badge|badge.*license", content_lower))
-    features["has_coverage_badge"] = bool(re.search(r"coverage", content_lower))
-    features["has_downloads_badge"] = bool(re.search(r"downloads?", content_lower))
-    features["has_stars_badge"] = bool(re.search(r"stars?", content_lower))
-    features["has_forks_badge"] = bool(re.search(r"forks?", content_lower))
-    features["has_issues_badge"] = bool(re.search(r"issues?", content_lower))
-    features["has_language_badge"] = bool(re.search(r"(python|javascript|typescript|java)", content_lower))
-    
-    metrics["badge_count"] = shields_count
-    
-    # Centered content
-    features["has_centered_content"] = bool(re.search(r"align\s*=\s*['\"]center['\"]", content_lower))
-    features["has_aligned_images"] = bool(re.search(r"align.*center.*img|img.*align.*center", content_lower))
-    features["has_banner"] = bool(re.search(r"banner|hero|header", content_lower))
-    
-    # HTML formatting
-    features["has_html_formatting"] = bool(re.search(r"<(?:p|div|img|table|br|hr)", content_lower))
-    features["has_details_summary"] = bool(re.search(r"<details>|<summary>", content_lower))
-    features["has_custom_html"] = bool(re.search(r"<(?:span|kbd|mark|small)", content_lower))
-    
-    # Blockquotes
-    features["has_blockquotes"] = bool(re.search(r"^>\s", content, re.MULTILINE))
-    features["has_note_boxes"] = bool(re.search(r">.*note|>.*important|>.*warning", content_lower))
-    features["has_tip_boxes"] = bool(re.search(r">.*tip|>.*hint", content_lower))
-    
-    # Task lists
-    features["has_task_lists"] = bool(re.search(r"-\s\[[ x]\]", content))
-    features["has_checklist"] = bool(re.search(r"-\s\[x\]", content))
-    
-    # Emojis
-    features["has_emojis"] = bool(re.search(r"[\U0001F300-\U0001F9FF]", content))
-    features["has_many_emojis"] = len(re.findall(r"[\U0001F300-\U0001F9FF]", content)) > 10
-    
-    # Mermaid diagrams
-    features["has_mermaid"] = bool(re.search(r"```mermaid", content))
-    features["has_flowchart"] = bool(re.search(r"flowchart|graph", content_lower))
-    features["has_sequence_diagram"] = bool(re.search(r"sequence", content_lower))
-    
-    # ===== PROFESSIONAL ELEMENTS (0-15) =====
-    # Length metrics
-    word_count = len(content.split())
-    line_count = len(content.splitlines())
-    char_count = len(content)
-    
-    features["has_substantial_content"] = word_count > 500
-    features["has_comprehensive_docs"] = word_count > 1000
-    features["has_extensive_docs"] = word_count > 2000
-    
-    metrics["word_count"] = word_count
-    metrics["line_count"] = line_count
-    metrics["char_count"] = char_count
-    metrics["avg_line_length"] = char_count / max(line_count, 1)
-    
-    # Code density
-    code_lines = sum(1 for block in code_blocks for line in block.split("\n"))
-    features["has_code_heavy"] = code_lines > 50
-    metrics["code_lines"] = code_lines
-    metrics["code_to_text_ratio"] = code_lines / max(line_count, 1)
-    
-    # Link density
-    features["has_rich_links"] = link_count > 10
-    features["has_cross_references"] = bool(re.search(r"\]\(#", content))
-    
-    # Multi-language support
-    features["has_multilang"] = bool(re.search(r"(chinese|spanish|french|german|japanese|korean)", content_lower))
-    features["has_translation_links"] = bool(re.search(r"(🇨🇳|🇪🇸|🇫🇷|🇩🇪|🇯🇵|🇰🇷)", content))
-    
-    # Metadata
-    features["has_version_info"] = bool(re.search(r"version|v\d+\.\d+", content_lower))
-    features["has_author_info"] = bool(re.search(r"(author|maintainer|creator)", content_lower))
-    features["has_date_info"] = bool(re.search(r"\d{4}-\d{2}-\d{2}|\d{4}", content))
-    features["has_status_info"] = bool(re.search(r"(stable|beta|alpha|deprecated)", content_lower))
-    
-    # Citations & References
-    features["has_citations"] = bool(re.search(r"(citation|reference|cite)", content_lower))
-    features["has_footnotes"] = bool(re.search(r"\[\^[^\]]+\]", content))
-    features["has_bibliography"] = bool(re.search(r"(bibliography|references?)", content_lower))
-    
-    # Accessibility
-    features["has_alt_text"] = bool(re.search(r"!\[[^\]]+\]", content))
-    features["has_descriptive_alt"] = len(re.findall(r"!\[[^\]]{10,}\]", content)) > 3
-    
-    # SEO-friendly
-    features["has_meta_description"] = word_count > 100
-    features["has_keywords"] = bool(re.search(r"(keyword|tag|topic)", content_lower))
-    
-    return {"features": features, "metrics": metrics}
+    m["code_block_count"] = len(code_blocks)
+    f["has_code_examples"] = m["code_block_count"] > 0
+    f["has_many_code_blocks"] = m["code_block_count"] > 5
+    f["has_bash_examples"] = "```bash" in content
+    f["has_python_examples"] = "```python" in content
+    f["has_javascript_examples"] = "```javascript" in content or "```js" in content
+    f["has_json_examples"] = "```json" in content
+    f["has_yaml_examples"] = "```yaml" in content
+    m["link_count"] = len(re.findall(r"\[[^\]]+\]\([^)]+\)", content))
+    f["has_links"] = m["link_count"] > 5
+    f["has_many_links"] = m["link_count"] > 20
+    f["has_external_links"] = bool(re.search(r"\]\(https?://", content))
+    f["has_github_links"] = "](https://github.com" in content
+    f["has_docs_links"] = bool(re.search(r"\]\(https?://\S*docs?", cl))
+    m["image_count"] = len(re.findall(r"!\[[^\]]*\]\([^)]+\)", content))
+    f["has_images"] = m["image_count"] > 0
+    f["has_many_images"] = m["image_count"] > 3
+    f["has_gifs"] = ".gif" in cl
+    f["has_screenshots"] = bool(re.search(r"screenshot|demo.*\.(png|jpg|gif)", cl))
+    f["has_youtube_links"] = "youtube.com" in cl or "youtu.be" in cl
+
+    # content sections
+    f["has_installation"] = bool(re.search(r"install|setup|getting started", cl))
+    f["has_quick_start"] = "quick start" in cl or "quickstart" in cl
+    f["has_prerequisites"] = bool(re.search(r"prerequisit|requirement", cl))
+    f["has_docker_instructions"] = "docker" in cl
+    f["has_env_setup"] = bool(re.search(r"\.env|environment variable", cl))
+    f["has_usage"] = bool(re.search(r"usage|how to use|example", cl))
+    f["has_basic_example"] = "basic example" in cl or "simple example" in cl
+    f["has_advanced_example"] = "advanced" in cl
+    f["has_multiple_examples"] = cl.count("example") > 3
+    f["has_api_docs"] = bool(re.search(r"\bapi\b|endpoint", cl))
+    f["has_endpoint_list"] = bool(re.search(r"(get|post|put|delete) /", cl))
+    f["has_parameters"] = bool(re.search(r"parameter|argument", cl))
+    f["has_response_format"] = bool(re.search(r"response|returns?", cl))
+    f["has_error_handling"] = bool(re.search(r"error|exception", cl))
+    f["has_configuration"] = bool(re.search(r"config|settings?", cl))
+    f["has_env_vars"] = "environment variable" in cl
+    f["has_config_file"] = bool(re.search(r"\.env|config\.(json|yaml|yml|toml)", cl))
+    f["has_contributing"] = "contributing" in cl
+    f["has_code_of_conduct"] = "code of conduct" in cl
+    f["has_license_section"] = "license" in cl
+    f["has_changelog"] = "changelog" in cl
+    f["has_roadmap"] = "roadmap" in cl
+    f["has_faq"] = "faq" in cl
+    f["has_troubleshooting"] = "troubleshoot" in cl or "common issues" in cl
+    f["has_support"] = bool(re.search(r"support|contact", cl))
+    f["has_discord"] = "discord" in cl
+    f["has_slack"] = "slack" in cl
+    f["has_architecture"] = "architecture" in cl
+    f["has_design_decisions"] = "design decision" in cl
+    f["has_flow_diagram"] = bool(re.search(r"diagram|flowchart", cl))
+    f["has_system_overview"] = "overview" in cl
+    f["has_toc"] = "table of contents" in cl or cl.count("](#") > 5
+    f["has_back_to_top"] = "back to top" in cl
+    f["has_navigation"] = bool(re.search(r"jump to|skip to", cl))
+    f["has_demo"] = bool(re.search(r"\bdemo\b|live preview|try it", cl))
+    f["has_live_link"] = bool(re.search(r"live demo|deployed|hosted", cl))
+    f["has_video_demo"] = bool(re.search(r"video|screencast", cl))
+    f["has_testing"] = bool(re.search(r"\btest", cl))
+    f["has_test_commands"] = bool(re.search(r"npm test|pytest|jest|cargo test", cl))
+    f["has_coverage"] = "coverage" in cl
+    f["has_deployment"] = "deploy" in cl
+    f["has_vercel"] = "vercel" in cl
+    f["has_heroku"] = "heroku" in cl
+    f["has_aws"] = "aws" in cl
+    f["has_docker_compose"] = "docker-compose" in cl or "docker compose" in cl
+
+    # badges & visual
+    m["badge_count"] = len(re.findall(r"shields\.io|img\.shields", cl))
+    f["has_badges"] = m["badge_count"] > 0
+    f["has_many_badges"] = m["badge_count"] > 5
+    f["has_ci_badge"] = bool(re.search(r"(build|ci|tests?).*(passing|status)", cl))
+    f["has_version_badge"] = bool(re.search(r"version|release", cl))
+    f["has_license_badge"] = bool(re.search(r"license.*shields|shields.*license", cl))
+    f["has_coverage_badge"] = "coverage" in cl and m["badge_count"] > 0
+    f["has_downloads_badge"] = "downloads" in cl and m["badge_count"] > 0
+    f["has_stars_badge"] = "stars" in cl and m["badge_count"] > 0
+    f["has_language_badge"] = m["badge_count"] > 0 and bool(re.search(r"python|javascript|typescript", cl))
+    f["has_centered_content"] = 'align="center"' in cl or "align='center'" in cl
+    f["has_aligned_images"] = f["has_centered_content"] and m["image_count"] > 0
+    f["has_banner"] = bool(re.search(r"banner|hero", cl))
+    f["has_html_formatting"] = bool(re.search(r"<(p|div|img|table|br|hr)\b", cl))
+    f["has_details_summary"] = "<details>" in cl
+    f["has_custom_html"] = bool(re.search(r"<(span|kbd|mark|small)\b", cl))
+    f["has_blockquotes"] = bool(re.search(r"^> ", content, re.M))
+    f["has_note_boxes"] = bool(re.search(r"^> *(note|important|warning)", cl, re.M))
+    f["has_tip_boxes"] = bool(re.search(r"^> *(tip|hint)", cl, re.M))
+    f["has_task_lists"] = bool(re.search(r"- \[[ x]\]", content))
+    f["has_checklist"] = "- [x]" in content
+    emoji_count = len(re.findall(r"[\U0001F300-\U0001FAFF]", content))
+    f["has_emojis"] = emoji_count > 0
+    f["has_many_emojis"] = emoji_count > 10
+    f["has_mermaid"] = "```mermaid" in content
+    f["has_flowchart"] = "flowchart" in cl or "graph td" in cl or "graph lr" in cl
+    f["has_sequence_diagram"] = "sequence diagram" in cl
+
+    # length & density
+    m["word_count"] = len(content.split())
+    m["line_count"] = len(content.splitlines())
+    m["char_count"] = len(content)
+    f["has_substantial_content"] = m["word_count"] > 500
+    f["has_comprehensive_docs"] = m["word_count"] > 1000
+    f["has_extensive_docs"] = m["word_count"] > 2000
+    code_lines = sum(b.count("\n") for b in code_blocks)
+    m["code_lines"] = code_lines
+    f["has_code_heavy"] = code_lines > 50
+    f["has_rich_links"] = m["link_count"] > 10
+    f["has_cross_references"] = "](#" in content
+    f["has_multilang"] = bool(re.search(r"中文|spanish|french|german|日本語|한국어", content))
+    f["has_translation_links"] = bool(re.search(r"🇨|🇪|🇫🇷|🇩🇪|🇵|🇰🇷", content))
+    f["has_version_info"] = bool(re.search(r"v?\d+\.\d+(\.\d+)?", content))
+    f["has_author_info"] = bool(re.search(r"author|maintainer|created by", cl))
+    f["has_status_info"] = bool(re.search(r"stable|beta|alpha|deprecated", cl))
+    f["has_citations"] = bool(re.search(r"citation|cite", cl))
+    f["has_footnotes"] = bool(re.search(r"\[\^", content))
+    f["has_alt_text"] = bool(re.search(r"!\[[^\]]+\]", content))
+    f["has_descriptive_alt"] = len(re.findall(r"!\[[^\]]{10,}\]", content)) > 2
+    return {"features": f, "metrics": m}

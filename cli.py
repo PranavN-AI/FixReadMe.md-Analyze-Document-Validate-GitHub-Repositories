@@ -1,4 +1,4 @@
-"""cli.py - one-command README generation."""
+"""cli.py - one-command README generation (local path or GitHub URL)."""
 import argparse
 from pathlib import Path
 
@@ -9,8 +9,8 @@ from scanner import scan_repository
 
 def main():
     ap = argparse.ArgumentParser(description="FixReadMe - generate a professional README.md")
-    ap.add_argument("path", nargs="?", default=".", help="repo folder (default: current)")
-    ap.add_argument("--no-save", action="store_true", help="print only, don't write the file")
+    ap.add_argument("path", nargs="?", default=".", help="local folder or GitHub URL")
+    ap.add_argument("--no-save", action="store_true", help="print only, don't write a file")
     args = ap.parse_args()
 
     meta = scan_repository(args.path)
@@ -20,6 +20,10 @@ def main():
 
     if args.no_save:
         print(readme)
+    elif meta.get("is_github_clone"):
+        out = Path.cwd() / f"{meta['project_name']}_README.md"
+        out.write_text(readme, encoding="utf-8")
+        print(f"✅ GitHub mode: README saved to {out}")
     else:
         out = Path(meta["path"]) / "README.md"
         if out.exists():
