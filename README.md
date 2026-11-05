@@ -1,3 +1,5 @@
+[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/PranavN-AI/badge.svg)](https://hub.xerj.org/contributors/PranavN-AI)
+
 # FixReadMe.md
 
 FixReadMe.md analyzes a GitHub repository and creates an evidence-based `README.md`. It detects languages, frameworks, dependencies, entry points, routes, tests, and license information, then returns the generated Markdown with validation findings and a quality score.
